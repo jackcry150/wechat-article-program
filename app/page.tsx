@@ -1,4 +1,5 @@
 import { GeneratorForm } from '../components/generator-form';
+import { XiaohongshuPanel } from '../components/xiaohongshu-panel';
 
 export default function Home() {
   return (
@@ -14,6 +15,7 @@ export default function Home() {
           </p>
         </header>
 
+        <XiaohongshuPanel />
         <GeneratorForm />
       </div>
     </main>

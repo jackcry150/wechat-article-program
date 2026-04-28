@@ -8,17 +8,11 @@ type ImagePlan = {
   prompt: string;
 };
 
-type GeminiGenerateContentResponse = {
-  candidates?: Array<{
-    content?: {
-      parts?: Array<{
-        text?: string;
-        inlineData?: {
-          data?: string;
-          mimeType?: string;
-        };
-      }>;
-    };
+type OpenAIImageGenerationResponse = {
+  data?: Array<{
+    b64_json?: string;
+    url?: string;
+    revised_prompt?: string;
   }>;
 };
 
@@ -154,19 +148,34 @@ export async function generateImagePlan(articleContent: string, count: number, p
 }
 
 export async function generateImage(prompt: string): Promise<GeneratedImagePayload> {
-  const model = process.env.IMAGE_MODEL?.trim() || 'gemini-3.1-flash-image-preview';
-  const response = await fetch(`${getBaseUrl()}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+  const model = process.env.IMAGE_MODEL?.trim() || 'gpt-image-2';
+  const outputFormat = process.env.IMAGE_OUTPUT_FORMAT?.trim() || 'png';
+  const requestBody: Record<string, string> = {
+    model,
+    prompt,
+  };
+
+  if (outputFormat) {
+    requestBody.output_format = outputFormat;
+  }
+
+  const size = process.env.IMAGE_SIZE?.trim();
+  if (size) {
+    requestBody.size = size;
+  }
+
+  const quality = process.env.IMAGE_QUALITY?.trim();
+  if (quality) {
+    requestBody.quality = quality;
+  }
+
+  const response = await fetch(`${getBaseUrl()}/v1/images/generations`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${getRequiredEnv('DEERAPI_API_KEY')}`,
     },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseModalities: ['TEXT', 'IMAGE'],
-      },
-    }),
+    body: JSON.stringify(requestBody),
   });
 
   if (!response.ok) {
@@ -174,37 +183,23 @@ export async function generateImage(prompt: string): Promise<GeneratedImagePaylo
   }
 
   const raw = await response.text();
-  const data = parsePossiblyStreamedJson<GeminiGenerateContentResponse>(raw);
+  const data = parsePossiblyStreamedJson<OpenAIImageGenerationResponse>(raw);
+  const image = data.data?.find((item) => item.b64_json || item.url);
 
-  const parts = data.candidates?.[0]?.content?.parts ?? [];
-  const inlinePart = parts.find((part) => part.inlineData?.data);
-  if (inlinePart?.inlineData?.data) {
+  if (image?.b64_json) {
     return {
       kind: 'base64',
-      value: inlinePart.inlineData.data,
-      mimeType: inlinePart.inlineData.mimeType,
+      value: image.b64_json,
+      mimeType: `image/${outputFormat === 'jpg' ? 'jpeg' : outputFormat}`,
     };
   }
 
-  const textParts = parts.map((part) => part.text?.trim() || '').filter(Boolean);
-  const urlText = textParts.find((text) => /^https?:\/\//i.test(text));
-  if (urlText) {
+  if (image?.url) {
     return {
       kind: 'url',
-      value: urlText,
+      value: image.url,
     };
   }
 
-  const markdownUrlMatch = textParts
-    .join('\n')
-    .match(/!?\[[^\]]*\]\((https?:\/\/[^\s)]+)\)/i) ||
-    textParts.join('\n').match(/\[[^\]]*\]\((https?:\/\/[^\s)]+)\)/i);
-  if (markdownUrlMatch?.[1]) {
-    return {
-      kind: 'url',
-      value: markdownUrlMatch[1],
-    };
-  }
-
-  throw new Error(`图片响应中既未找到 base64，也未找到图片 URL。原始响应：${raw.slice(0, 500)}`);
+  throw new Error(`图片响应中未找到 b64_json 或 URL。原始响应：${raw.slice(0, 500)}`);
 }

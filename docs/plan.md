@@ -29,7 +29,7 @@
 - Server-side generation route/actions only; no database
 - `.env` should expose all configurable secrets and base URLs
 - Use DeerAPI-compatible text model endpoint for article generation
-- Use DeerAPI Gemini image generation (`https://api.deerapi.com`) for images
+- Use DeerAPI OpenAI image generation (`POST /v1/images/generations`) for images
 - Save files to local filesystem from the server side
 
 ## Required env variables
@@ -37,7 +37,13 @@
 - DEERAPI_API_KEY=
 - TEXT_MODEL=
 - IMAGE_MODEL=
+- IMAGE_OUTPUT_FORMAT=png
+- IMAGE_SIZE=auto
+- IMAGE_QUALITY=auto
 - OUTPUT_DIR=./output
+- PORT=3000
+- XHS_CLI_COMMAND=xhs.cmd
+- XHS_COOKIE_SOURCE=auto
 
 ## MVP user flow
 1. User fills form and submits
