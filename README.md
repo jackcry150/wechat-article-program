@@ -43,7 +43,7 @@ IMAGE_SIZE=auto
 IMAGE_QUALITY=auto
 OUTPUT_DIR=./output
 PORT=3000
-XHS_CLI_COMMAND=xhs.cmd
+XHS_CLI_COMMAND=xhs
 XHS_COOKIE_SOURCE=auto
 ```
 
@@ -58,7 +58,7 @@ XHS_COOKIE_SOURCE=auto
 - `IMAGE_QUALITY`：可选图片质量；不确定时用 `auto`
 - `OUTPUT_DIR`：本地输出目录，默认项目中的 `output/`
 - `PORT`：本地 Web 服务端口，默认 `3000`
-- `XHS_CLI_COMMAND`：小红书 CLI 命令名或完整路径，Windows 默认可用 `xhs.cmd`
+- `XHS_CLI_COMMAND`：小红书 CLI 命令名或完整路径，macOS/Linux 默认用 `xhs`，Windows 可用 `xhs.cmd`
 - `XHS_COOKIE_SOURCE`：读取小红书登录 Cookie 的浏览器来源，可填 `auto`、`edge`、`chrome`、`firefox`、`brave` 等
 
 ## 本地运行
@@ -93,13 +93,15 @@ http://localhost:3000
 uv tool install xiaohongshu-cli
 ```
 
-如果需要二维码登录，请在终端运行：
+如果需要二维码登录，可以直接点击页面里的“扫码登录”，也可以在终端运行：
 
 ```bash
 xhs login --qrcode
 ```
 
-Web 页面里的“导入浏览器登录”会执行 `xhs login --json`。如果自动检测失败，把 `.env` 里的 `XHS_COOKIE_SOURCE` 改成你实际登录小红书的浏览器，例如 `edge` 或 `chrome`，然后重启 `npm run dev`。
+Web 页面里的“导入浏览器登录”会执行 `xhs login --json`，前提是你已经在本机浏览器登录过小红书。如果自动检测失败，把 `.env` 里的 `XHS_COOKIE_SOURCE` 改成你实际登录小红书的浏览器，例如 `edge` 或 `chrome`，然后重启 `npm run dev`。
+
+如果本机浏览器里没有可读取的小红书登录态，请使用 QR 登录：点击页面里的“扫码登录”或在终端运行 `xhs login --qrcode`。首次 QR 登录会下载 Camoufox 浏览器运行时，下载完成后会弹出登录窗口；扫码成功后回到页面点击“检查登录”。
 
 ## 构建检查
 

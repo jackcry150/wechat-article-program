@@ -1,6 +1,8 @@
 export type ArticleLength = 'short' | 'medium' | 'long';
+export type ContentPlatform = 'wechat' | 'xiaohongshu';
 
 export interface GenerateRequest {
+  platform: ContentPlatform;
   topic: string;
   style?: string;
   audience?: string;

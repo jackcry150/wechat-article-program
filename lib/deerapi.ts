@@ -3,7 +3,7 @@ type ChatMessage = {
   content: string;
 };
 
-type ImagePlan = {
+export type ImagePlan = {
   slot: string;
   prompt: string;
 };
@@ -113,6 +113,13 @@ async function deerChat(messages: ChatMessage[]): Promise<string> {
 }
 
 export async function generateArticleContent(prompt: string, systemPrompt: string): Promise<string> {
+  return deerChat([
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: prompt },
+  ]);
+}
+
+export async function generateStructuredText(prompt: string, systemPrompt = '你是资深内容策划，请按用户要求输出内容。'): Promise<string> {
   return deerChat([
     { role: 'system', content: systemPrompt },
     { role: 'user', content: prompt },

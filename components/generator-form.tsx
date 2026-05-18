@@ -2,7 +2,7 @@
 
 import { useActionState, useState, useEffect } from 'react';
 import { generateArticleFromFormData } from '../app/actions/generate';
-import { GenerateResult } from '../types';
+import { ContentPlatform, GenerateResult } from '../types';
 
 const initialState: GenerateResult | null = null;
 
@@ -32,6 +32,9 @@ function StatusBanner({ state }: { state: GenerateResult | null }) {
 export function GeneratorForm() {
   const [state, formAction, isPending] = useActionState(generateArticleFromFormData, initialState);
   const [elapsed, setElapsed] = useState(0);
+  const [platform, setPlatform] = useState<ContentPlatform>('wechat');
+  const [topic, setTopic] = useState('');
+  const [extraRequirements, setExtraRequirements] = useState('');
   const images = state?.generatedImages ?? [];
 
   useEffect(() => {
@@ -42,46 +45,103 @@ export function GeneratorForm() {
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [isPending]);
+
+  useEffect(() => {
+    function handleFill(event: Event) {
+      const detail = (event as CustomEvent<{
+        platform?: ContentPlatform;
+        topic?: string;
+        extraRequirements?: string;
+      }>).detail;
+      if (!detail) return;
+      if (detail.platform) setPlatform(detail.platform);
+      if (detail.topic) setTopic(detail.topic);
+      if (detail.extraRequirements) setExtraRequirements(detail.extraRequirements);
+      window.requestAnimationFrame(() => {
+        document.getElementById('content-generator-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+
+    window.addEventListener('wechat-demo-fill-generator', handleFill);
+    return () => window.removeEventListener('wechat-demo-fill-generator', handleFill);
+  }, []);
+
   const successfulImageCount = images.filter((item) => !item.error).length;
   const displayElapsed = isPending ? elapsed : 0;
+  const isXhs = platform === 'xiaohongshu';
 
   return (
     <div className="grid gap-6 lg:grid-cols-[420px_minmax(0,1fr)]">
-      <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+      <section id="content-generator-form" className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
         <div className="mb-6">
-          <p className="text-sm font-medium text-emerald-600">本地 Web 软件 · MVP</p>
-          <h2 className="mt-2 text-2xl font-semibold text-zinc-900">公众号图文生成器</h2>
-          <p className="mt-2 text-sm leading-6 text-zinc-600">输入主题后，自动生成文章大纲、正文和配图，并保存到本地目录，最后由你手动上传公众号后台。</p>
+          <p className="text-sm font-medium text-emerald-600">本地 Web 软件 · 公众号/小红书双平台</p>
+          <h2 className="mt-2 text-2xl font-semibold text-zinc-900">内容生成器</h2>
+          <p className="mt-2 text-sm leading-6 text-zinc-600">输入主题后，按所选平台生成公众号文章或小红书笔记，并保存到本地目录。小红书搜索结果可以先经过 AI 修饰，再一键填入这里。</p>
         </div>
 
         <form action={formAction} className="space-y-4">
+          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+            <p className="mb-2 text-sm font-medium text-zinc-800">发布平台</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className={`flex cursor-pointer items-center justify-center rounded-xl border px-4 py-3 text-sm font-semibold transition ${platform === 'wechat' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-zinc-200 bg-white text-zinc-600'}`}>
+                <input
+                  type="radio"
+                  name="platform"
+                  value="wechat"
+                  checked={platform === 'wechat'}
+                  onChange={() => setPlatform('wechat')}
+                  className="sr-only"
+                />
+                微信公众号
+              </label>
+              <label className={`flex cursor-pointer items-center justify-center rounded-xl border px-4 py-3 text-sm font-semibold transition ${platform === 'xiaohongshu' ? 'border-rose-500 bg-rose-50 text-rose-700' : 'border-zinc-200 bg-white text-zinc-600'}`}>
+                <input
+                  type="radio"
+                  name="platform"
+                  value="xiaohongshu"
+                  checked={platform === 'xiaohongshu'}
+                  onChange={() => setPlatform('xiaohongshu')}
+                  className="sr-only"
+                />
+                小红书笔记
+              </label>
+            </div>
+          </div>
+
           <label className="block">
-            <span className="mb-2 block text-sm font-medium text-zinc-800">文章主题 *</span>
-            <input name="topic" required placeholder="例如：普通人怎么用 AI 做公众号副业" className="w-full rounded-2xl border border-zinc-300 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100" />
+            <span className="mb-2 block text-sm font-medium text-zinc-800">{isXhs ? '笔记选题 *' : '文章主题 *'}</span>
+            <input
+              name="topic"
+              required
+              value={topic}
+              onChange={(event) => setTopic(event.target.value)}
+              placeholder={isXhs ? '例如：普通人用 AI 做副业的 5 个真实路径' : '例如：普通人怎么用 AI 做公众号副业'}
+              className="w-full rounded-2xl border border-zinc-300 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+            />
           </label>
 
           <label className="block">
-            <span className="mb-2 block text-sm font-medium text-zinc-800">文章风格</span>
-            <input name="style" placeholder="例如：干货型、口语型、故事型" className="w-full rounded-2xl border border-zinc-300 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100" />
+            <span className="mb-2 block text-sm font-medium text-zinc-800">{isXhs ? '笔记风格' : '文章风格'}</span>
+            <input name="style" placeholder={isXhs ? '例如：真实经验、清单型、避坑型、口语化' : '例如：干货型、口语型、故事型'} className="w-full rounded-2xl border border-zinc-300 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100" />
           </label>
 
           <label className="block">
-            <span className="mb-2 block text-sm font-medium text-zinc-800">目标读者</span>
-            <input name="audience" placeholder="例如：公众号运营新手、AI 创业者" className="w-full rounded-2xl border border-zinc-300 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100" />
+            <span className="mb-2 block text-sm font-medium text-zinc-800">{isXhs ? '目标人群' : '目标读者'}</span>
+            <input name="audience" placeholder={isXhs ? '例如：想做 AI 副业的新手、职场宝妈、内容创作者' : '例如：公众号运营新手、AI 创业者'} className="w-full rounded-2xl border border-zinc-300 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100" />
           </label>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block">
-              <span className="mb-2 block text-sm font-medium text-zinc-800">文章长度</span>
+              <span className="mb-2 block text-sm font-medium text-zinc-800">{isXhs ? '笔记长度' : '文章长度'}</span>
               <select name="length" defaultValue="medium" className="w-full rounded-2xl border border-zinc-300 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100">
-                <option value="short">短文</option>
-                <option value="medium">中等</option>
-                <option value="long">长文</option>
+                <option value="short">{isXhs ? '短文300字' : '短文'}</option>
+                <option value="medium">{isXhs ? '中500字' : '中等'}</option>
+                <option value="long">{isXhs ? '长800字' : '长文'}</option>
               </select>
             </label>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-medium text-zinc-800">正文配图数量</span>
+              <span className="mb-2 block text-sm font-medium text-zinc-800">{isXhs ? '手机竖版配图数量' : '正文普通插图数量'}</span>
               <input name="imageCount" type="number" min={0} max={5} defaultValue={3} className="w-full rounded-2xl border border-zinc-300 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100" />
               <p className="mt-1 text-xs text-zinc-400">配图越多越慢，想快速测试可先设为 0 或 1。</p>
             </label>
@@ -89,12 +149,19 @@ export function GeneratorForm() {
 
           <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
             <input name="includeCover" type="checkbox" defaultChecked className="h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500" />
-            同时生成封面图
+            同时生成{isXhs ? '小红书封面图' : '封面图'}
           </label>
 
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-800">补充要求</span>
-            <textarea name="extraRequirements" rows={5} placeholder="例如：不要太官话，结尾给行动建议，图片风格简洁高级" className="w-full rounded-2xl border border-zinc-300 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100" />
+            <textarea
+              name="extraRequirements"
+              rows={5}
+              value={extraRequirements}
+              onChange={(event) => setExtraRequirements(event.target.value)}
+              placeholder={isXhs ? '例如：更像真实经验分享，文末加 10 个小红书话题，适合收藏' : '例如：不要太官话，结尾给行动建议，图片风格简洁高级'}
+              className="w-full rounded-2xl border border-zinc-300 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+            />
           </label>
 
           <label className="block">

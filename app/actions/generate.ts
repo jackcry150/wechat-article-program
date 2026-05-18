@@ -27,6 +27,13 @@ import {
   buildOutlinePrompt,
 } from '../../lib/prompts';
 import {
+  appendPoolEntry,
+  extractTags,
+  PoolEntry,
+  searchPool,
+} from '../../lib/pool';
+import { loadKnowledgeContext } from '../../lib/knowledge';
+import {
   formatSearchResultsForPrompt,
   searchTavily,
 } from '../../lib/tavily';
@@ -117,9 +124,23 @@ async function materializeImage(payload: GeneratedImagePayload): Promise<{ bytes
   };
 }
 
+function formatSimilarPoolContext(entries: PoolEntry[]): string | undefined {
+  if (!entries.length) return undefined;
+
+  const lines = entries.slice(0, 5).map((entry) => [
+    `- 主题：${entry.topic}`,
+    `  标签：${entry.tags.join('、') || '暂无'}`,
+    `  评分：${entry.rating ?? '未评分'}`,
+    `  备注：${entry.notes || '暂无'}`,
+  ].join('\n'));
+
+  return `## 相似历史结果\n${lines.join('\n')}`;
+}
+
 export async function generateArticle(request: GenerateRequest): Promise<GenerateResult> {
   try {
     const outputDir = await createOutputDirectory(request.topic);
+    const platform = request.platform || 'wechat';
     const searchTriggered = shouldTriggerSearch(request);
     let searchContext: string | undefined;
     let searchUsed: GenerateResult['searchUsed'] = {
@@ -144,19 +165,47 @@ export async function generateArticle(request: GenerateRequest): Promise<Generat
       }
     }
 
-    const outlinePrompt = buildOutlinePrompt(request, searchContext);
+    const [knowledgeContext, similarResults] = await Promise.all([
+      loadKnowledgeContext(request.topic),
+      searchPool(request.topic),
+    ]);
+    const promptKnowledgeContext = [
+      knowledgeContext,
+      formatSimilarPoolContext(similarResults),
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+
+    const outlineRequest = {
+      ...request,
+      customOutlinePrompt: request.customOutlinePrompt || request.customArticlePrompt,
+    };
+    const outlinePrompt = buildOutlinePrompt(
+      outlineRequest,
+      searchContext,
+      promptKnowledgeContext || undefined,
+    );
     await saveTextFile(outputDir, 'prompts/outline_prompt.txt', outlinePrompt);
     const outline = await generateArticleContent(
       outlinePrompt,
-      '你负责先做公众号选题策划和文章结构设计。',
+      platform === 'xiaohongshu'
+        ? '你负责小红书选题策划和笔记结构设计，要兼顾搜索、收藏、评论互动和真实分享感。'
+        : '你负责先做公众号选题策划和文章结构设计。',
     );
     await saveTextFile(outputDir, 'outline.md', outline);
 
-    const articlePrompt = buildArticlePrompt(request, outline, searchContext);
+    const articlePrompt = buildArticlePrompt(
+      request,
+      outline,
+      searchContext,
+      promptKnowledgeContext || undefined,
+    );
     await saveTextFile(outputDir, 'prompts/article_prompt.txt', articlePrompt);
     const articleMd = await generateArticleContent(
       articlePrompt,
-      '你负责撰写完整公众号文章，要求自然、可信、适合发布。',
+      platform === 'xiaohongshu'
+        ? '你负责撰写可以直接发布的小红书笔记，要求真实、具体、可收藏、可互动，并带合适话题标签。'
+        : '你负责撰写完整公众号文章，要求自然、可信、适合发布。',
     );
     await saveTextFile(outputDir, 'article.md', articleMd);
 
@@ -172,7 +221,7 @@ export async function generateArticle(request: GenerateRequest): Promise<Generat
     let plannerPrompt: string | undefined;
 
     if (totalImagesNeeded > 0) {
-      plannerPrompt = buildImagePromptPlanner(articleMd, totalImagesNeeded, request.customImagePlannerPrompt);
+      plannerPrompt = buildImagePromptPlanner(articleMd, totalImagesNeeded, request.customImagePlannerPrompt, platform);
       await saveTextFile(outputDir, 'prompts/image_planner_prompt.txt', plannerPrompt);
       const plans = await generateImagePlan(articleMd, totalImagesNeeded, plannerPrompt);
       await saveJsonFile(outputDir, 'prompts/image_plan.json', plans);
@@ -220,6 +269,7 @@ export async function generateArticle(request: GenerateRequest): Promise<Generat
     }
 
     const metadata = {
+      platform,
       topic: request.topic,
       style: request.style || null,
       audience: request.audience || null,
@@ -241,6 +291,31 @@ export async function generateArticle(request: GenerateRequest): Promise<Generat
       })),
     };
     await saveJsonFile(outputDir, 'metadata.json', metadata);
+
+    const poolEntry: PoolEntry = {
+      id: path.basename(outputDir),
+      topic: request.topic,
+      platform,
+      generatedAt: metadata.generatedAt,
+      rating: null,
+      tags: [...extractTags(request.topic), ...extractTags(request.extraRequirements || '')].slice(0, 8),
+      articleLength: articleMdFinal.length,
+      imageCount: imagePreviews.filter((item) => item.relativePath).length,
+      promptVersions: {
+        outline: 'v1',
+        article: 'v1',
+      },
+      searchContextUsed: Boolean(searchContext),
+      notes: [
+        request.extraRequirements,
+        request.customOutlinePrompt,
+        request.customArticlePrompt,
+      ]
+        .filter(Boolean)
+        .join(' | '),
+      outputDir,
+    };
+    await appendPoolEntry(poolEntry);
 
     return {
       success: true,
@@ -273,6 +348,7 @@ export async function generateArticleFromFormData(
   formData: FormData,
 ): Promise<GenerateResult> {
   return generateArticle({
+    platform: (String(formData.get('platform') || 'wechat') as GenerateRequest['platform']) || 'wechat',
     topic: String(formData.get('topic') || '').trim(),
     style: String(formData.get('style') || '').trim() || undefined,
     audience: String(formData.get('audience') || '').trim() || undefined,
