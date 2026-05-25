@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
+import { getPoolBaseDir } from './files';
 
 export interface PoolEntry {
   id: string;
@@ -19,7 +20,7 @@ export interface PoolEntry {
   outputDir: string;
 }
 
-const poolDir = path.resolve(process.cwd(), 'pool');
+const poolDir = getPoolBaseDir();
 const indexPath = path.join(poolDir, 'index.jsonl');
 const stopWords = new Set([
   '什么',

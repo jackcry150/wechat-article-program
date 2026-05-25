@@ -1,6 +1,13 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 
+function resolveConfiguredDir(configuredValue: string | undefined, fallbackRelativeDir: string): string {
+  const configured = configuredValue?.trim() || fallbackRelativeDir;
+  return path.isAbsolute(configured)
+    ? configured
+    : path.join(/* turbopackIgnore: true */ process.cwd(), configured);
+}
+
 function slugify(input: string): string {
   return input
     .toLowerCase()
@@ -18,16 +25,25 @@ function timestampString(date = new Date()): string {
 }
 
 export async function createOutputDirectory(topic: string): Promise<string> {
-  const configured = process.env.OUTPUT_DIR?.trim() || './output';
-  const absoluteBase = path.isAbsolute(configured)
-    ? configured
-    : path.join(/* turbopackIgnore: true */ process.cwd(), configured);
+  const absoluteBase = getOutputBaseDir();
   const dirPath = path.join(absoluteBase, `${timestampString()}_${slugify(topic)}`);
 
   await fs.mkdir(path.join(dirPath, 'prompts'), { recursive: true });
   await fs.mkdir(path.join(dirPath, 'images'), { recursive: true });
 
   return dirPath;
+}
+
+export function getOutputBaseDir(): string {
+  return resolveConfiguredDir(process.env.OUTPUT_DIR, './output');
+}
+
+export function getPoolBaseDir(): string {
+  return resolveConfiguredDir(process.env.POOL_DIR, './pool');
+}
+
+export function getKnowledgeBaseDir(): string {
+  return resolveConfiguredDir(process.env.KNOWLEDGE_DIR, './knowledge');
 }
 
 export async function saveTextFile(dirPath: string, relativePath: string, content: string): Promise<void> {

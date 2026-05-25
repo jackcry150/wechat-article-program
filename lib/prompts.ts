@@ -38,10 +38,32 @@ function formatKnowledgeContext(knowledgeContext?: string): string | undefined {
   return `\n以下是品牌知识库和历史经验的积累，请务必参考但不要生硬套用：\n\n${knowledgeContext}`;
 }
 
+function formatDocumentContext(documentContext?: string): string | undefined {
+  if (!documentContext) return undefined;
+  return `\n以下是用户提供的素材文档内容，请把它当作本次写作的重要事实、案例和选题来源：\n\n${documentContext}`;
+}
+
+function formatPriorityDirectives(raw?: string, heading = '以下为用户指定必须体现的内容'): string | undefined {
+  if (!raw?.trim()) return undefined;
+
+  const normalized = raw
+    .split(/\r?\n|[，,；;、]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (!normalized.length) return undefined;
+
+  return [
+    `【最高优先级】${heading}：`,
+    ...normalized.map((item) => `- ${item}`),
+  ].join('\n');
+}
+
 export function buildOutlinePrompt(
   params: GenerateRequest,
   searchContext?: string,
   knowledgeContext?: string,
+  documentContext?: string,
 ): string {
   if (getPlatform(params) === 'xiaohongshu') {
     return [
@@ -53,6 +75,7 @@ export function buildOutlinePrompt(
       `篇幅要求：${getLengthGuide(params)}`,
       params.extraRequirements ? `补充要求：${params.extraRequirements}` : undefined,
       formatSearchContext(searchContext),
+      formatDocumentContext(documentContext),
       '',
       '请输出：',
       '1. 5 个可直接发布的小红书标题（要有搜索关键词，但不要标题党过度）',
@@ -63,10 +86,10 @@ export function buildOutlinePrompt(
       '6. 关键词与话题标签：给出 8-12 个 #话题，区分核心词、长尾词、场景词',
       '7. 封面文案建议：1 句主标题 + 1 句副标题，适合放在封面图上',
       '',
+      formatPriorityDirectives(params.customOutlinePrompt, '以下内容必须在大纲中明确规划，如含具体品牌/产品名，必须作为案例纳入结构，不得遗漏'),
       formatKnowledgeContext(knowledgeContext),
       '',
       '要求：',
-      params.customOutlinePrompt ? `- 【最高优先级】以下为用户指定必须在大纲中规划的内容。如含具体品牌/产品名，必须在各章节中作为案例规划进去，不得遗漏。品类/属性关键词分散到不同章节：${params.customOutlinePrompt}` : undefined,
       '- 语言像真人博主，不要像报告或广告软文',
       '- 标题和话题要能被小红书用户搜索到',
       '- 内容必须能落到具体场景、步骤、清单或经验',
@@ -86,6 +109,7 @@ export function buildOutlinePrompt(
     `篇幅要求：${getLengthGuide(params)}`,
     params.extraRequirements ? `补充要求：${params.extraRequirements}` : undefined,
     formatSearchContext(searchContext),
+    formatDocumentContext(documentContext),
     '',
     '请输出：',
     '1. 3 个可选标题',
@@ -93,10 +117,10 @@ export function buildOutlinePrompt(
     '3. 文章结构大纲（导语、3-5 个小节、结尾）',
     '4. 每个小节想表达的核心要点',
     '',
+    formatPriorityDirectives(params.customOutlinePrompt, '以下内容必须在大纲中明确规划，如含具体品牌/产品名，必须作为案例纳入结构，不得遗漏'),
     formatKnowledgeContext(knowledgeContext),
     '',
     '要求：',
-    params.customOutlinePrompt ? `- 【最高优先级】以下为用户指定必须在大纲中规划的内容。如含具体品牌/产品名，必须在各章节中作为案例规划进去，不得遗漏。品类/属性关键词分散到不同章节：${params.customOutlinePrompt}` : undefined,
     '- 适合公众号排版和阅读习惯',
     '- 语言自然，不要太 AI 腔',
     '- 段落节奏适合后续扩写',
@@ -110,6 +134,7 @@ export function buildArticlePrompt(
   outline: string,
   searchContext?: string,
   knowledgeContext?: string,
+  documentContext?: string,
 ): string {
   if (getPlatform(params) === 'xiaohongshu') {
     return [
@@ -122,6 +147,9 @@ export function buildArticlePrompt(
       `篇幅要求：${getLengthGuide(params)}`,
       params.extraRequirements ? `补充要求：${params.extraRequirements}` : undefined,
       formatSearchContext(searchContext),
+      formatDocumentContext(documentContext),
+      '',
+      formatPriorityDirectives(params.customArticlePrompt, '以下内容必须在正文中明确体现。如含具体品牌/产品名，必须明确写出，不得遗漏或替换'),
       '',
       '参考策划案：',
       outline,
@@ -129,7 +157,6 @@ export function buildArticlePrompt(
       formatKnowledgeContext(knowledgeContext),
       '',
       '写作要求：',
-      params.customArticlePrompt ? `- 【最高优先级】以下为用户指定必须在正文中体现的内容。如含具体品牌/产品名（如"橘猫智酷"），必须作为案例在文中明确写出，不得遗漏或替换。品类/属性关键词分散融入各段落作为上下文：${params.customArticlePrompt}` : undefined,
       '- 第一行输出最终标题',
       '- 开头 3 行内必须说清楚痛点/场景/收益，不要铺垫太长',
       '- 多用短句、列表、步骤、对比、避坑、清单，方便手机阅读',
@@ -153,6 +180,9 @@ export function buildArticlePrompt(
     `篇幅要求：${getLengthGuide(params)}`,
     params.extraRequirements ? `补充要求：${params.extraRequirements}` : undefined,
     formatSearchContext(searchContext),
+    formatDocumentContext(documentContext),
+    '',
+    formatPriorityDirectives(params.customArticlePrompt, '以下内容必须在正文中明确体现。如含具体品牌/产品名，必须明确写出，不得遗漏或替换'),
     '',
     '参考大纲：',
     outline,
@@ -160,7 +190,6 @@ export function buildArticlePrompt(
     formatKnowledgeContext(knowledgeContext),
     '',
     '写作要求：',
-    params.customArticlePrompt ? `- 【最高优先级】以下为用户指定必须在正文中体现的内容。如含具体品牌/产品名（如"橘猫智酷"），必须作为案例在文中明确写出，不得遗漏或替换。品类/属性关键词分散融入各段落作为上下文：${params.customArticlePrompt}` : undefined,
     '- 第一行输出最终标题',
     '- 开头要有吸引人的钩子',
     '- 使用短段落，适合公众号阅读',
@@ -192,7 +221,7 @@ export function buildImagePromptPlanner(
     '{"slot":"cover|inline-1|inline-2...","prompt":"详细中文生图提示词"}',
     '不要输出任何 JSON 之外的文字。',
     '',
-    customPrompt ? `- 【最高优先级】以下为用户指定必须在配图中体现的内容。如含具体品牌/产品名，必须在生图提示词中明确写入，不得遗漏：${customPrompt}` : undefined,
+    formatPriorityDirectives(customPrompt, '以下内容必须在配图中体现。如含具体品牌/产品名，必须在生图提示词中明确写入，不得遗漏'),
     '提示词要求：',
     isXhs
       ? '- 必须适配手机屏幕竖版比例，统一按 3:4 构图与出图，主体居中、留出安全边距，适合小红书信息流预览和点击'

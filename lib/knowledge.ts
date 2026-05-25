@@ -1,8 +1,9 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { extractTags } from './pool';
+import { getKnowledgeBaseDir } from './files';
 
-const knowledgeDir = path.resolve(process.cwd(), 'knowledge');
+const knowledgeDir = getKnowledgeBaseDir();
 
 async function readKnowledgeFile(...parts: string[]): Promise<string> {
   const filePath = path.join(knowledgeDir, ...parts);

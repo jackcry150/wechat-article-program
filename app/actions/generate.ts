@@ -5,12 +5,14 @@ import {
   GenerateRequest,
   GenerateResult,
   GeneratedImagePreview,
+  GeneratorFormValues,
 } from '../../types';
 import {
   generateArticleContent,
   generateImage,
   generateImagePlan,
   GeneratedImagePayload,
+  generateStructuredText,
 } from '../../lib/deerapi';
 import {
   buildImageAnnotations,
@@ -26,6 +28,12 @@ import {
   buildImagePromptPlanner,
   buildOutlinePrompt,
 } from '../../lib/prompts';
+import { loadReferenceMaterials, loadUploadedReferenceFiles } from '../../lib/source-docs';
+import {
+  buildTitleFromMaterialsPrompt,
+  extractRecommendedTitle,
+  extractTitleCandidates,
+} from '../../lib/title-from-materials';
 import {
   appendPoolEntry,
   extractTags,
@@ -72,6 +80,22 @@ const SEARCH_TRIGGER_KEYWORDS = [
 function toInt(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value || '', 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function buildFormValues(formData: FormData): GeneratorFormValues {
+  return {
+    platform: (String(formData.get('platform') || 'wechat') as GenerateRequest['platform']) || 'wechat',
+    topic: String(formData.get('topic') || '').trim(),
+    style: String(formData.get('style') || '').trim() || undefined,
+    audience: String(formData.get('audience') || '').trim() || undefined,
+    length: (String(formData.get('length') || 'medium') as GenerateRequest['length']) || 'medium',
+    imageCount: Math.max(0, Math.min(5, toInt(String(formData.get('imageCount') || '3'), 3))),
+    includeCover: formData.get('includeCover') === 'on',
+    extraRequirements: String(formData.get('extraRequirements') || '').trim() || undefined,
+    customOutlinePrompt: String(formData.get('customOutlinePrompt') || '').trim() || undefined,
+    customArticlePrompt: String(formData.get('customArticlePrompt') || '').trim() || undefined,
+    customImagePlannerPrompt: String(formData.get('customImagePlannerPrompt') || '').trim() || undefined,
+  };
 }
 
 function shouldTriggerSearch(request: GenerateRequest): boolean {
@@ -137,19 +161,124 @@ function formatSimilarPoolContext(entries: PoolEntry[]): string | undefined {
   return `## 相似历史结果\n${lines.join('\n')}`;
 }
 
+async function suggestTitlesFromFormData(formData: FormData): Promise<GenerateResult> {
+  const formValues = buildFormValues(formData);
+  const uploadedFiles = await Promise.all(
+    formData
+      .getAll('referenceFiles')
+      .filter((item): item is File => item instanceof File && item.size > 0)
+      .map(async (file) => ({
+        name: file.name,
+        bytes: Buffer.from(await file.arrayBuffer()),
+      })),
+  );
+
+  const inlineMaterials = await loadReferenceMaterials({
+    inlineContent: String(formData.get('referenceMaterials') || '').trim() || undefined,
+  });
+  const uploadedMaterials = await loadUploadedReferenceFiles(uploadedFiles);
+  const mergedWarnings = [...inlineMaterials.warnings, ...uploadedMaterials.warnings];
+  const mergedSegments = [inlineMaterials.combinedText, uploadedMaterials.combinedText].filter(Boolean);
+  const mergedReferenceMaterials = mergedSegments.length ? mergedSegments.join('\n\n') : undefined;
+
+  if (!mergedReferenceMaterials) {
+    return {
+      success: false,
+      error: '请先上传/粘贴素材，或直接填写标题后再生成正文。',
+      formValues,
+      sourceWarnings: mergedWarnings,
+    };
+  }
+
+  try {
+    const request: GenerateRequest = {
+      ...formValues,
+      referenceMaterials: mergedReferenceMaterials,
+      sourceWarningsInput: mergedWarnings,
+    };
+    const titlePrompt = buildTitleFromMaterialsPrompt(request, mergedReferenceMaterials);
+    const titleSuggestions = await generateStructuredText(
+      titlePrompt,
+      formValues.platform === 'xiaohongshu'
+        ? '你负责根据素材提炼小红书可发布标题，并给出最终推荐标题。'
+        : '你负责根据素材提炼公众号可扩写标题，并给出最终推荐标题。',
+    );
+    const titleCandidates = extractTitleCandidates(titleSuggestions);
+    const recommendedTitle = extractRecommendedTitle(titleSuggestions);
+
+    return {
+      success: true,
+      stage: 'title-selection',
+      message: '标题候选已生成',
+      titleCandidates: titleCandidates.length ? titleCandidates : recommendedTitle ? [recommendedTitle] : [],
+      recommendedTitle,
+      resolvedTopic: recommendedTitle,
+      titleSuggestionsExcerpt:
+        titleSuggestions.length > 400 ? `${titleSuggestions.slice(0, 400)}...\n\n（标题候选已截断）` : titleSuggestions,
+      preservedReferenceMaterials: mergedReferenceMaterials,
+      sourceWarnings: mergedWarnings,
+      formValues,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '标题候选生成失败',
+      preservedReferenceMaterials: mergedReferenceMaterials,
+      sourceWarnings: mergedWarnings,
+      formValues,
+    };
+  }
+}
+
 export async function generateArticle(request: GenerateRequest): Promise<GenerateResult> {
   try {
-    const outputDir = await createOutputDirectory(request.topic);
+    const materials = await loadReferenceMaterials({
+      inlineContent: request.referenceMaterials,
+      filePathsText: request.referenceFilePaths,
+    });
+    materials.warnings.push(...(request.sourceWarningsInput || []));
+    const documentContext = materials.combinedText;
+
+    let resolvedTopic = request.topic.trim();
+    let titleSuggestions: string | undefined;
+    if (documentContext && !request.selectedTitleLocked) {
+      const titlePrompt = buildTitleFromMaterialsPrompt(request, documentContext);
+      titleSuggestions = await generateStructuredText(
+        titlePrompt,
+        request.platform === 'xiaohongshu'
+          ? '你负责根据素材提炼小红书可发布标题，并给出最终推荐标题。'
+          : '你负责根据素材提炼公众号可扩写标题，并给出最终推荐标题。',
+      );
+      resolvedTopic = extractRecommendedTitle(titleSuggestions) || resolvedTopic;
+    }
+
+    if (!resolvedTopic) {
+      throw new Error('请至少填写文章主题，或提供可用于提炼标题的素材文档。');
+    }
+
+    const effectiveRequest: GenerateRequest = {
+      ...request,
+      topic: resolvedTopic,
+    };
+
+    const outputDir = await createOutputDirectory(resolvedTopic);
     const platform = request.platform || 'wechat';
-    const searchTriggered = shouldTriggerSearch(request);
+    const searchTriggered = shouldTriggerSearch(effectiveRequest);
     let searchContext: string | undefined;
     let searchUsed: GenerateResult['searchUsed'] = {
       triggered: searchTriggered,
     };
 
+    if (documentContext) {
+      await saveTextFile(outputDir, 'source-materials.md', documentContext);
+    }
+    if (titleSuggestions) {
+      await saveTextFile(outputDir, 'title_candidates.md', titleSuggestions);
+    }
+
     if (searchTriggered) {
       try {
-        const searchResponse = await searchTavily(request.topic, {
+        const searchResponse = await searchTavily(resolvedTopic, {
           topic: 'news',
           maxResults: 5,
         });
@@ -166,8 +295,8 @@ export async function generateArticle(request: GenerateRequest): Promise<Generat
     }
 
     const [knowledgeContext, similarResults] = await Promise.all([
-      loadKnowledgeContext(request.topic),
-      searchPool(request.topic),
+      loadKnowledgeContext(resolvedTopic),
+      searchPool(resolvedTopic),
     ]);
     const promptKnowledgeContext = [
       knowledgeContext,
@@ -177,13 +306,14 @@ export async function generateArticle(request: GenerateRequest): Promise<Generat
       .join('\n\n');
 
     const outlineRequest = {
-      ...request,
+      ...effectiveRequest,
       customOutlinePrompt: request.customOutlinePrompt || request.customArticlePrompt,
     };
     const outlinePrompt = buildOutlinePrompt(
       outlineRequest,
       searchContext,
       promptKnowledgeContext || undefined,
+      documentContext,
     );
     await saveTextFile(outputDir, 'prompts/outline_prompt.txt', outlinePrompt);
     const outline = await generateArticleContent(
@@ -195,10 +325,11 @@ export async function generateArticle(request: GenerateRequest): Promise<Generat
     await saveTextFile(outputDir, 'outline.md', outline);
 
     const articlePrompt = buildArticlePrompt(
-      request,
+      effectiveRequest,
       outline,
       searchContext,
       promptKnowledgeContext || undefined,
+      documentContext,
     );
     await saveTextFile(outputDir, 'prompts/article_prompt.txt', articlePrompt);
     const articleMd = await generateArticleContent(
@@ -270,19 +401,27 @@ export async function generateArticle(request: GenerateRequest): Promise<Generat
 
     const metadata = {
       platform,
-      topic: request.topic,
+      topic: resolvedTopic,
+      originalTopic: request.topic || null,
       style: request.style || null,
       audience: request.audience || null,
       length: request.length,
       imageCount: request.imageCount,
       includeCover: request.includeCover,
       extraRequirements: request.extraRequirements || null,
+      referenceFilePaths: request.referenceFilePaths || null,
       customOutlinePrompt: request.customOutlinePrompt || null,
       customArticlePrompt: request.customArticlePrompt || null,
       customImagePlannerPrompt: request.customImagePlannerPrompt || null,
       generatedAt: new Date().toISOString(),
       outputDir,
       searchUsed,
+      sourceWarnings: materials.warnings,
+      loadedDocuments: materials.loadedDocuments.map((item) => ({
+        filePath: item.filePath,
+        displayName: item.displayName,
+        loader: item.loader,
+      })),
       images: imagePreviews.map((item) => ({
         fileName: item.fileName,
         relativePath: item.relativePath,
@@ -294,7 +433,7 @@ export async function generateArticle(request: GenerateRequest): Promise<Generat
 
     const poolEntry: PoolEntry = {
       id: path.basename(outputDir),
-      topic: request.topic,
+      topic: resolvedTopic,
       platform,
       generatedAt: metadata.generatedAt,
       rating: null,
@@ -308,6 +447,7 @@ export async function generateArticle(request: GenerateRequest): Promise<Generat
       searchContextUsed: Boolean(searchContext),
       notes: [
         request.extraRequirements,
+        request.referenceFilePaths,
         request.customOutlinePrompt,
         request.customArticlePrompt,
       ]
@@ -319,8 +459,14 @@ export async function generateArticle(request: GenerateRequest): Promise<Generat
 
     return {
       success: true,
+      stage: 'complete',
       message: '生成完成',
       outputPath: outputDir,
+      resolvedTopic,
+      titleSuggestionsExcerpt: titleSuggestions
+        ? (titleSuggestions.length > 400 ? `${titleSuggestions.slice(0, 400)}...\n\n（标题候选已截断）` : titleSuggestions)
+        : undefined,
+      sourceWarnings: materials.warnings,
       downloadUrl: `/api/download?dir=${encodeURIComponent(path.basename(outputDir))}`,
       articleExcerpt: articleMdFinal.length > 500 ? articleMdFinal.slice(0, 500) + '...\n\n（正文已截断，请前往本地目录查看完整文件）' : articleMdFinal,
       outlineExcerpt: outline.length > 300 ? outline.slice(0, 300) + '...\n\n（大纲已截断）' : outline,
@@ -347,17 +493,24 @@ export async function generateArticleFromFormData(
   _prevState: GenerateResult | null,
   formData: FormData,
 ): Promise<GenerateResult> {
+  const actionMode = String(formData.get('actionMode') || 'generate').trim();
+  if (actionMode === 'suggest_titles') {
+    return suggestTitlesFromFormData(formData);
+  }
+
+  const formValues = buildFormValues(formData);
+  const preservedReferenceMaterials = String(formData.get('preservedReferenceMaterials') || '').trim() || undefined;
+  const selectedTitle = String(formData.get('selectedTitle') || '').trim();
+  const sourceWarningsInput = String(formData.get('sourceWarningsInput') || '')
+    .split('\n')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
   return generateArticle({
-    platform: (String(formData.get('platform') || 'wechat') as GenerateRequest['platform']) || 'wechat',
-    topic: String(formData.get('topic') || '').trim(),
-    style: String(formData.get('style') || '').trim() || undefined,
-    audience: String(formData.get('audience') || '').trim() || undefined,
-    length: (String(formData.get('length') || 'medium') as GenerateRequest['length']) || 'medium',
-    imageCount: Math.max(0, Math.min(5, toInt(String(formData.get('imageCount') || '3'), 3))),
-    includeCover: formData.get('includeCover') === 'on',
-    extraRequirements: String(formData.get('extraRequirements') || '').trim() || undefined,
-    customOutlinePrompt: String(formData.get('customOutlinePrompt') || '').trim() || undefined,
-    customArticlePrompt: String(formData.get('customArticlePrompt') || '').trim() || undefined,
-    customImagePlannerPrompt: String(formData.get('customImagePlannerPrompt') || '').trim() || undefined,
+    ...formValues,
+    topic: selectedTitle || formValues.topic,
+    referenceMaterials: preservedReferenceMaterials,
+    sourceWarningsInput,
+    selectedTitleLocked: Boolean(selectedTitle),
   });
 }

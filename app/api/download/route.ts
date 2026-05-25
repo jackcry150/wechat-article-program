@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import archiver from 'archiver';
 import path from 'path';
 import fs from 'fs';
+import { getOutputBaseDir } from '../../../lib/files';
 
 export async function GET(request: Request) {
   try {
@@ -17,7 +18,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Invalid directory name' }, { status: 400 });
     }
 
-    const outputBase = path.join(process.cwd(), 'output');
+    const outputBase = getOutputBaseDir();
     const targetDir = path.join(outputBase, dir);
 
     // 校验实际路径是否在 output 目录下

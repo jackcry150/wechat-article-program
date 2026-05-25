@@ -1,7 +1,10 @@
 import { GeneratorForm } from '../components/generator-form';
-import { XiaohongshuPanel } from '../components/xiaohongshu-panel';
+import { PublishPanel } from '../components/publish-panel';
+import { listRecentOutputs } from './actions/publish';
 
-export default function Home() {
+export default async function Home() {
+  const outputs = await listRecentOutputs(12);
+
   return (
     <main className="min-h-screen bg-zinc-100 px-4 py-10 text-zinc-900 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl space-y-8">
@@ -14,9 +17,8 @@ export default function Home() {
             你只需要输入文章主题和少量要求，系统会自动生成公众号文章、配图提示词并调用 DeerAPI 生图，最后把结果保存到本地目录，方便你手动检查和上传发布。
           </p>
         </header>
-
-        <XiaohongshuPanel />
         <GeneratorForm />
+        <PublishPanel outputs={outputs} />
       </div>
     </main>
   );

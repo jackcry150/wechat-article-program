@@ -29,10 +29,21 @@ const dotEnv = readDotEnv();
 const port = process.env.PORT || dotEnv.PORT || '3000';
 const hostname = process.env.HOSTNAME || dotEnv.HOSTNAME || '0.0.0.0';
 const nextBin = require.resolve('next/dist/bin/next');
+const defaultHeapMb = process.env.NODE_HEAP_MB || dotEnv.NODE_HEAP_MB || '4096';
+const existingNodeOptions = [process.env.NODE_OPTIONS, dotEnv.NODE_OPTIONS]
+  .filter(Boolean)
+  .join(' ')
+  .trim();
+const nodeOptions = existingNodeOptions.includes('--max-old-space-size')
+  ? existingNodeOptions
+  : `${existingNodeOptions} --max-old-space-size=${defaultHeapMb}`.trim();
+const nextArgs = [nextBin, mode, '--hostname', hostname, '--port', port];
+
+// Turbopack is the stable default in Next.js 16 — no --webpack flag needed.
 
 const child = spawn(
   process.execPath,
-  [nextBin, mode, '--hostname', hostname, '--port', port],
+  nextArgs,
   {
     stdio: 'inherit',
     env: {
@@ -40,6 +51,7 @@ const child = spawn(
       ...dotEnv,
       PORT: port,
       HOSTNAME: hostname,
+      NODE_OPTIONS: nodeOptions,
     },
   },
 );

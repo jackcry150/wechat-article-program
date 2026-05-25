@@ -135,11 +135,39 @@ function extractJsonArray(raw: string): string {
   return raw.slice(start, end + 1);
 }
 
+function repairLooseJson(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .replace(/([{,]\s*)([A-Za-z0-9_]+)\s*:/g, '$1"$2":')
+    .replace(/:\s*'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_match, value) => {
+      const escaped = String(value).replace(/"/g, '\\"');
+      return `: "${escaped}"`;
+    })
+    .replace(/,\s*([}\]])/g, '$1');
+}
+
+function parseJsonArrayWithRepair<T>(raw: string): T {
+  const arrayText = extractJsonArray(raw);
+
+  try {
+    return JSON.parse(arrayText) as T;
+  } catch (error) {
+    const repaired = repairLooseJson(arrayText);
+    try {
+      return JSON.parse(repaired) as T;
+    } catch {
+      throw error;
+    }
+  }
+}
+
 export async function generateImagePlan(articleContent: string, count: number, plannerPrompt: string): Promise<ImagePlan[]> {
   const text = await deerChat([
     {
       role: 'system',
-      content: '你只输出合法 JSON，不输出任何额外解释。',
+      content: '你只输出合法 JSON 数组，不输出任何额外解释；所有键名和字符串都必须使用双引号。',
     },
     {
       role: 'user',
@@ -147,7 +175,7 @@ export async function generateImagePlan(articleContent: string, count: number, p
     },
   ]);
 
-  const parsed = JSON.parse(extractJsonArray(text)) as ImagePlan[];
+  const parsed = parseJsonArrayWithRepair<ImagePlan[]>(text);
   return parsed.slice(0, count).map((item, index) => ({
     slot: item?.slot || `inline-${index + 1}`,
     prompt: item?.prompt || '一张适合公众号文章的简洁插图，现代、干净、统一风格。',

@@ -1,10 +1,10 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { appendPoolEntry, extractTags, PoolEntry } from '../lib/pool';
+import { getOutputBaseDir, getPoolBaseDir } from '../lib/files';
 
-const rootDir = process.cwd();
-const outputDir = path.resolve(rootDir, 'output');
-const indexPath = path.resolve(rootDir, 'pool', 'index.jsonl');
+const outputDir = getOutputBaseDir();
+const indexPath = path.join(getPoolBaseDir(), 'index.jsonl');
 
 function buildNotes(metadata: Record<string, unknown>): string {
   const notes = [

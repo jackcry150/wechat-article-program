@@ -42,6 +42,8 @@ IMAGE_OUTPUT_FORMAT=png
 IMAGE_SIZE=auto
 IMAGE_QUALITY=auto
 OUTPUT_DIR=./output
+POOL_DIR=./pool
+KNOWLEDGE_DIR=./knowledge
 PORT=3000
 XHS_CLI_COMMAND=xhs
 XHS_COOKIE_SOURCE=auto
@@ -57,9 +59,25 @@ XHS_COOKIE_SOURCE=auto
 - `IMAGE_SIZE`：可选图片尺寸；不确定时用 `auto`
 - `IMAGE_QUALITY`：可选图片质量；不确定时用 `auto`
 - `OUTPUT_DIR`：本地输出目录，默认项目中的 `output/`
+- `POOL_DIR`：历史结果索引目录，默认项目中的 `pool/`
+- `KNOWLEDGE_DIR`：知识库目录，默认项目中的 `knowledge/`
 - `PORT`：本地 Web 服务端口，默认 `3000`
 - `XHS_CLI_COMMAND`：小红书 CLI 命令名或完整路径，macOS/Linux 默认用 `xhs`，Windows 可用 `xhs.cmd`
 - `XHS_COOKIE_SOURCE`：读取小红书登录 Cookie 的浏览器来源，可填 `auto`、`edge`、`chrome`、`firefox`、`brave` 等
+
+如果你想把生成内容直接写到 NAS，可以把这些路径改成绝对路径，例如：
+
+```env
+OUTPUT_DIR=/Volumes/运营部/公众号推文/output
+POOL_DIR=/Volumes/运营部/公众号推文/pool
+KNOWLEDGE_DIR=/Volumes/运营部/公众号推文/knowledge
+```
+
+建议：
+
+- `OUTPUT_DIR`：非常适合放 NAS
+- `POOL_DIR`：适合放 NAS，便于沉淀历史结果
+- `KNOWLEDGE_DIR`：可以放 NAS，但如果你频繁编辑，保留本地通常更稳
 
 ## 本地运行
 
